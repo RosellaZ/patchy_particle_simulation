@@ -282,21 +282,21 @@ print(params)
 # duration = end - start
 # print(f"Learning rate = 0.1, Optimization {opt_steps} steps, simulation steps {n_steps}, sim_opt_steps {n_steps_opt}, with ensemble size = {ensemble_size}, takes {duration} seconds in total")
 
-previous_sim_param = onp.loadtxt(OPT_DIR_NAME + '/param' + str(0.05) + '.txt')
+previous_sim_param = onp.loadtxt(OPT_DIR_NAME + '/param' + str(0.01) + '.txt')
 print(len(previous_sim_param))
 print(previous_sim_param[-1])
 min_loss_params = previous_sim_param[-1]
 
-start = time.time()
+# start = time.time()
 key, split = random.split(key)
-loss_array, min_loss_params = optimization(min_loss_params, opt_steps - len(previous_sim_param), split, learning_rate = 0.05, resume = True)
-end = time.time()
-duration = end - start
-print(f"Learning rate = 0.05, Optimization {opt_steps} steps, simulation steps {n_steps}, sim_opt_steps {n_steps_opt}, with ensemble size = {ensemble_size}, takes {duration} seconds in total")
+# loss_array, min_loss_params = optimization(min_loss_params, opt_steps - len(previous_sim_param), split, learning_rate = 0.05, resume = True)
+# end = time.time()
+# duration = end - start
+# print(f"Learning rate = 0.05, Optimization {opt_steps} steps, simulation steps {n_steps}, sim_opt_steps {n_steps_opt}, with ensemble size = {ensemble_size}, takes {duration} seconds in total")
 
 start = time.time()
 key, split = random.split(key)
-loss_array, min_loss_params = optimization(min_loss_params, opt_steps, split, learning_rate = 0.01, resume = False)
+loss_array, min_loss_params = optimization(min_loss_params, opt_steps - len(previous_sim_param), split, learning_rate = 0.01, resume = True)
 end = time.time()
 duration = end - start
 print(f"Learning rate = 0.01, Optimization {opt_steps} steps, simulation steps {n_steps}, sim_opt_steps {n_steps_opt}, with ensemble size = {ensemble_size}, takes {duration} seconds in total")
