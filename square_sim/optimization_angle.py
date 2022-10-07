@@ -154,7 +154,7 @@ def run_simulation_patchy_particle(theta, energy_patch, key, num_steps, init_pos
 
   pair_energy_fn = lambda R, **kwargs: pair_energy_morse(R, **kwargs) + pair_energy_soft_sphere(R, **kwargs)
 
-  thetas = jnp.array([0.0, theta], dtype=jnp.float64)
+  thetas = jnp.array([-0.5*theta, 0.5*theta], dtype=jnp.float64)
   shape = thetas_to_shape(thetas, center_particle_rad)
 
   energy_fn = rigid_body.point_energy(pair_energy_fn, shape)
@@ -275,28 +275,30 @@ key, split = random.split(key)
 params = random.uniform(split, maxval = jnp.pi)
 print(params)
 
-# start = time.time()
-# key, split = random.split(key)
-# loss_array, min_loss_params = optimization(params, opt_steps, split, learning_rate = 0.1, resume = False)
-# end = time.time()
-# duration = end - start
-# print(f"Learning rate = 0.1, Optimization {opt_steps} steps, simulation steps {n_steps}, sim_opt_steps {n_steps_opt}, with ensemble size = {ensemble_size}, takes {duration} seconds in total")
-
-previous_sim_param = onp.loadtxt(OPT_DIR_NAME + '/param' + str(0.01) + '.txt')
-print(len(previous_sim_param))
-print(previous_sim_param[-1])
-min_loss_params = previous_sim_param[-1]
-
-# start = time.time()
+start = time.time()
 key, split = random.split(key)
-# loss_array, min_loss_params = optimization(min_loss_params, opt_steps - len(previous_sim_param), split, learning_rate = 0.05, resume = True)
-# end = time.time()
-# duration = end - start
-# print(f"Learning rate = 0.05, Optimization {opt_steps} steps, simulation steps {n_steps}, sim_opt_steps {n_steps_opt}, with ensemble size = {ensemble_size}, takes {duration} seconds in total")
+loss_array, min_loss_params = optimization(params, opt_steps, split, learning_rate = 0.1, resume = False)
+end = time.time()
+duration = end - start
+print(f"Learning rate = 0.1, Optimization {opt_steps} steps, simulation steps {n_steps}, sim_opt_steps {n_steps_opt}, with ensemble size = {ensemble_size}, takes {duration} seconds in total")
+
+# previous_sim_param = onp.loadtxt(OPT_DIR_NAME + '/param' + str(0.01) + '.txt')
+# print(len(previous_sim_param))
+# print(previous_sim_param[-1])
+# min_loss_params = previous_sim_param[-1]
 
 start = time.time()
 key, split = random.split(key)
-loss_array, min_loss_params = optimization(min_loss_params, opt_steps - len(previous_sim_param), split, learning_rate = 0.01, resume = True)
+loss_array, min_loss_params = optimization(min_loss_params, opt_steps, split, learning_rate = 0.05, resume = False)
+# loss_array, min_loss_params = optimization(min_loss_params, opt_steps - len(previous_sim_param), split, learning_rate = 0.05, resume = True)
+end = time.time()
+duration = end - start
+print(f"Learning rate = 0.05, Optimization {opt_steps} steps, simulation steps {n_steps}, sim_opt_steps {n_steps_opt}, with ensemble size = {ensemble_size}, takes {duration} seconds in total")
+
+start = time.time()
+key, split = random.split(key)
+loss_array, min_loss_params = optimization(min_loss_params, opt_steps, split, learning_rate = 0.01, resume = False)
+# loss_array, min_loss_params = optimization(min_loss_params, opt_steps - len(previous_sim_param), split, learning_rate = 0.01, resume = True)
 end = time.time()
 duration = end - start
 print(f"Learning rate = 0.01, Optimization {opt_steps} steps, simulation steps {n_steps}, sim_opt_steps {n_steps_opt}, with ensemble size = {ensemble_size}, takes {duration} seconds in total")
