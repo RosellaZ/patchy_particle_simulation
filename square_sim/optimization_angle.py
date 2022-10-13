@@ -201,6 +201,9 @@ def optimization(input_params, opt_steps, key, learning_rate = 0.1, resume = Fal
   grad_file = OPT_DIR_NAME + '/grad' + str(learning_rate) + '.txt'
   param_file = OPT_DIR_NAME + '/param' + str(learning_rate) + '.txt'
   
+  def clip_gradient(g, clip=10000.0):
+    return jnp.array(jnp.where(jnp.abs(g) > clip, jnp.sign(g)*clip, g)) 
+  
   # Check if these files exist, if yes delete them
   def clear_files(filenames):
     for fn in filenames:
@@ -225,7 +228,7 @@ def optimization(input_params, opt_steps, key, learning_rate = 0.1, resume = Fal
       key, split = random.split(key)
       l, g = get_mean_loss(params, random.split(split, ensemble_size), n_steps_opt, final_positions)
       loss += l
-      grad += g
+      grad += clip_gradient(g)
       # grad += [g]
     # grad = jnp.mean(jnp.array(grad), axis = 0)
     loss = loss/loop_batch
@@ -282,7 +285,7 @@ end = time.time()
 duration = end - start
 print(f"Learning rate = 0.1, Optimization {opt_steps} steps, simulation steps {n_steps}, sim_opt_steps {n_steps_opt}, with ensemble size = {ensemble_size}, takes {duration} seconds in total")
 
-# previous_sim_param = onp.loadtxt(OPT_DIR_NAME + '/param' + str(0.01) + '.txt')
+# previous_sim_param = onp.loadtxt(OPT_DIR_NAME + '/param' + str(0.05) + '.txt')
 # print(len(previous_sim_param))
 # print(previous_sim_param[-1])
 # min_loss_params = previous_sim_param[-1]
