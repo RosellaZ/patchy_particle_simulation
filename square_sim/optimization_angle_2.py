@@ -14,6 +14,7 @@ from jax_md import space, energy, simulate, rigid_body
 import os
 from os.path import exists
 from pathlib import Path
+import sys
 
 """Utilities for computing gradients."""
  
@@ -65,11 +66,11 @@ box_size = get_box_size(num_density, N, center_particle_rad)
 dt = 1e-3
 kT = 1.0
 
-key = random.PRNGKey(0)
+# key = random.PRNGKey(int(sys.argv[1])
 ensemble_size = 50
 loop_batch = 4
-key, split = random.split(key)
-sim_keys = random.split(split, ensemble_size)
+# key, split = random.split(key)
+# sim_keys = random.split(split, ensemble_size)
 
 
 n_steps = 40000 #40000
@@ -182,7 +183,7 @@ def get_mean_loss(theta, sim_keys, num_steps_opt, init_poss):
 
 get_mean_loss = jit(value_and_jacfwd(jit(get_mean_loss, static_argnums=2)), static_argnums=2)
 
-OPT_DIR_NAME = '../Simulation_Results/' + 'square_Opt_kT{}_nparticle{}_nsteps{}_noptsteps{}_nopt{}_batchsize{}'.format(kT, N, n_steps, n_steps_opt, opt_steps, ensemble_size)
+OPT_DIR_NAME = '../Simulation_Results/' + 'square_Opt_kT{}_nparticle{}_nsteps{}_noptsteps{}_nopt{}_batchsize{}_{}'.format(kT, N, n_steps, n_steps_opt, opt_steps, ensemble_size, int(sys.argv[1]))
 # OPT_DIR_NAME = '/content/drive/MyDrive/Simulation_Results/' + 'square_Opt_kT{}_nparticle{}_nsteps{}_noptsteps{}_nopt{}_batchsize{}'.format(kT, N, n_steps, n_steps_opt, opt_steps, ensemble_size)
 p = Path(OPT_DIR_NAME)
 if not p.exists():
@@ -273,28 +274,28 @@ def optimization(input_params, opt_steps, key, learning_rate = 0.1, resume = Fal
   
   return loss_array, min_loss_params
 
-key = random.PRNGKey(129)
+key = random.PRNGKey(int(sys.argv[1])*1000)
 key, split = random.split(key)
 params = random.uniform(split, maxval = jnp.pi)
 print(params)
 
-start = time.time()
+# start = time.time()
 key, split = random.split(key)
-loss_array, min_loss_params = optimization(params, opt_steps, split, learning_rate = 0.1, resume = False)
-end = time.time()
-duration = end - start
-print(f"Learning rate = 0.1, Optimization {opt_steps} steps, simulation steps {n_steps}, sim_opt_steps {n_steps_opt}, with ensemble size = {ensemble_size}, takes {duration} seconds in total")
+# loss_array, min_loss_params = optimization(params, opt_steps, split, learning_rate = 0.1, resume = False)
+# end = time.time()
+# duration = end - start
+# print(f"Learning rate = 0.1, Optimization {opt_steps} steps, simulation steps {n_steps}, sim_opt_steps {n_steps_opt}, with ensemble size = {ensemble_size}, takes {duration} seconds in total")
 
-# previous_sim_param = onp.loadtxt(OPT_DIR_NAME + '/param' + str(0.1) + '.txt')
-# previous_loss = onp.loadtxt(OPT_DIR_NAME + '/loss' + str(0.1) + '.txt')
-# print(len(previous_sim_param))
-# print(previous_sim_param[-1])
-# min_loss_params = previous_sim_param[-1]
+previous_sim_param = onp.loadtxt(OPT_DIR_NAME + '/param' + str(0.005) + '.txt')
+# previous_loss = onp.loadtxt(OPT_DIR_NAME + '/loss' + str(0.01) + '.txt')
+print(len(previous_sim_param))
+print(previous_sim_param[-1])
+min_loss_params = previous_sim_param[-1]
 # min_loss_params = previous_sim_param[onp.argmin(previous_loss)]
 
 start = time.time()
 key, split = random.split(key)
-loss_array, min_loss_params = optimization(min_loss_params, opt_steps, split, learning_rate = 0.05, resume = False)
+#loss_array, min_loss_params = optimization(min_loss_params, opt_steps, split, learning_rate = 0.05, resume = False)
 # loss_array, min_loss_params = optimization(min_loss_params, opt_steps - len(previous_sim_param), split, learning_rate = 0.05, resume = True)
 end = time.time()
 duration = end - start
@@ -302,7 +303,7 @@ print(f"Learning rate = 0.05, Optimization {opt_steps} steps, simulation steps {
 
 start = time.time()
 key, split = random.split(key)
-loss_array, min_loss_params = optimization(min_loss_params, opt_steps, split, learning_rate = 0.01, resume = False)
+#loss_array, min_loss_params = optimization(min_loss_params, opt_steps, split, learning_rate = 0.01, resume = False)
 # loss_array, min_loss_params = optimization(min_loss_params, opt_steps - len(previous_sim_param), split, learning_rate = 0.01, resume = True)
 end = time.time()
 duration = end - start
@@ -310,8 +311,8 @@ print(f"Learning rate = 0.01, Optimization {opt_steps} steps, simulation steps {
 
 start = time.time()
 key, split = random.split(key)
-loss_array, min_loss_params = optimization(min_loss_params, opt_steps, split, learning_rate = 0.005, resume = False)
-# loss_array, min_loss_params = optimization(min_loss_params, opt_steps - len(previous_sim_param), split, learning_rate = 0.005, resume = True)
+#loss_array, min_loss_params = optimization(min_loss_params, opt_steps, split, learning_rate = 0.005, resume = False)
+loss_array, min_loss_params = optimization(min_loss_params, opt_steps - len(previous_sim_param), split, learning_rate = 0.005, resume = True)
 end = time.time()
 duration = end - start
-print(f"Learning rate = 0.05, Optimization {opt_steps} steps, simulation steps {n_steps}, sim_opt_steps {n_steps_opt}, with ensemble size = {ensemble_size}, takes {duration} seconds in total")
+print(f"Learning rate = 0.005, Optimization {opt_steps} steps, simulation steps {n_steps}, sim_opt_steps {n_steps_opt}, with ensemble size = {ensemble_size}, takes {duration} seconds in total")
