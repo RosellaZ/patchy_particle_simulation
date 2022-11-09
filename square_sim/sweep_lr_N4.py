@@ -55,8 +55,10 @@ dim = 2
 num_patch = 2
 center_particle_rad = 1.0 # radius of the central particle
 r_cutoff = 1.0
+params = 1.17
 
-# max_energy_patch = 15.0
+lr_list = jnp.array([0.1, 0.05, 0.01, 0.005])
+ind = int(sys.argv[1])
 patch_energies = jnp.array([3.15191843, 16.28813468, 7.34274863])
 max_energy_center = 10000.0
 
@@ -106,7 +108,7 @@ v_gen_init_pos = jit(vmap(gen_init_pos, (None, None, 0)), static_argnums = 0)
 @jit
 def sys_loss(center, orient, gamma = 0.1, delta = 0.1, clip_val = 1):
   displacement, shift = space.periodic(box_size)
-  epsilon = 0.01
+
   # first component: map distance
   vdisp = space.map_product(displacement)
   ds = space.distance(vdisp(center, center))
@@ -120,7 +122,7 @@ def sys_loss(center, orient, gamma = 0.1, delta = 0.1, clip_val = 1):
   # third component: map the difference between the angle between the egde and the orientation (should be pi/4)
   dss=vdisp(center, center)
   delta_xy = jnp.transpose(jnp.reshape(dss, (-1,2)))
-  diff_angle = jnp.reshape(jnp.arctan2(delta_xy[1] + epsilon, delta_xy[0] + epsilon), (len(center), len(center))) - orient[:, None]
+  diff_angle = jnp.reshape(jnp.arctan2(delta_xy[1], delta_xy[0]), (len(center), len(center))) - orient[:, None]
   diff_angle = jnp.mod(diff_angle+jnp.pi, 2*jnp.pi) - jnp.pi
   
   loss_list = (ds - 2)**2 + gamma * (abs(dtheta) - 0.5 * jnp.pi)**2 + delta * (abs(diff_angle) - jnp.pi*0.25)**2
@@ -183,7 +185,7 @@ def get_mean_loss(theta, sim_keys, num_steps_opt, init_poss):
 
 get_mean_loss = jit(value_and_jacfwd(jit(get_mean_loss, static_argnums=2)), static_argnums=2)
 
-OPT_DIR_NAME = '../Simulation_Results/' + 'square_Opt3_kT{}_nparticle{}_nsteps{}_noptsteps{}_nopt{}_batchsize{}_{}'.format(kT, N, n_steps, n_steps_opt, opt_steps, ensemble_size, int(sys.argv[1]))
+OPT_DIR_NAME = '../Simulation_Results/' + 'square_Opt_kT{}_nparticle{}_nsteps{}_noptsteps{}_nopt{}_batchsize{}_theta{}_lr{}'.format(kT, N, n_steps, n_steps_opt, opt_steps, ensemble_size, params, lr_list[ind])
 # OPT_DIR_NAME = '/content/drive/MyDrive/Simulation_Results/' + 'square_Opt_kT{}_nparticle{}_nsteps{}_noptsteps{}_nopt{}_batchsize{}'.format(kT, N, n_steps, n_steps_opt, opt_steps, ensemble_size)
 p = Path(OPT_DIR_NAME)
 if not p.exists():
@@ -276,43 +278,11 @@ def optimization(input_params, opt_steps, key, learning_rate = 0.1, resume = Fal
 
 key = random.PRNGKey(int(sys.argv[1])*1000)
 key, split = random.split(key)
-params = random.uniform(split, maxval = jnp.pi)
-print(params)
+print(f"Theta = {params}")
 
 start = time.time()
 key, split = random.split(key)
-loss_array, min_loss_params = optimization(params, opt_steps, split, learning_rate = 0.1, resume = False)
+loss_array, min_loss_params = optimization(params, opt_steps, split, learning_rate = lr_list[ind], resume = False)
 end = time.time()
 duration = end - start
-print(f"Learning rate = 0.1, Optimization {opt_steps} steps, simulation steps {n_steps}, sim_opt_steps {n_steps_opt}, with ensemble size = {ensemble_size}, takes {duration} seconds in total")
-
-# previous_sim_param = onp.loadtxt(OPT_DIR_NAME + '/param' + str(0.005) + '.txt')
-# previous_loss = onp.loadtxt(OPT_DIR_NAME + '/loss' + str(0.01) + '.txt')
-# print(len(previous_sim_param))
-# print(previous_sim_param[-1])
-# min_loss_params = previous_sim_param[-1]
-# min_loss_params = previous_sim_param[onp.argmin(previous_loss)]
-
-start = time.time()
-key, split = random.split(key)
-loss_array, min_loss_params = optimization(min_loss_params, opt_steps, split, learning_rate = 0.05, resume = False)
-# loss_array, min_loss_params = optimization(min_loss_params, opt_steps - len(previous_sim_param), split, learning_rate = 0.05, resume = True)
-end = time.time()
-duration = end - start
-print(f"Learning rate = 0.05, Optimization {opt_steps} steps, simulation steps {n_steps}, sim_opt_steps {n_steps_opt}, with ensemble size = {ensemble_size}, takes {duration} seconds in total")
-
-start = time.time()
-key, split = random.split(key)
-loss_array, min_loss_params = optimization(min_loss_params, opt_steps, split, learning_rate = 0.01, resume = False)
-# loss_array, min_loss_params = optimization(min_loss_params, opt_steps - len(previous_sim_param), split, learning_rate = 0.01, resume = True)
-end = time.time()
-duration = end - start
-print(f"Learning rate = 0.01, Optimization {opt_steps} steps, simulation steps {n_steps}, sim_opt_steps {n_steps_opt}, with ensemble size = {ensemble_size}, takes {duration} seconds in total")
-
-start = time.time()
-key, split = random.split(key)
-loss_array, min_loss_params = optimization(min_loss_params, opt_steps, split, learning_rate = 0.005, resume = False)
-#loss_array, min_loss_params = optimization(min_loss_params, opt_steps - len(previous_sim_param), split, learning_rate = 0.005, resume = True)
-end = time.time()
-duration = end - start
-print(f"Learning rate = 0.005, Optimization {opt_steps} steps, simulation steps {n_steps}, sim_opt_steps {n_steps_opt}, with ensemble size = {ensemble_size}, takes {duration} seconds in total")
+print(f"Learning rate = {lr_list[ind]}, Optimization {opt_steps} steps, simulation steps {n_steps}, sim_opt_steps {n_steps_opt}, with ensemble size = {ensemble_size}, takes {duration} seconds in total")
