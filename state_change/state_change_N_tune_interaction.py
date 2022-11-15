@@ -37,21 +37,16 @@ def thetas_to_shape(thetas, radius = 1.0, center_mass = 1.0, label = 0):
   return shape
 
 def gen_init_pos(N, box_size, key):
-      # generate an initial configuration of the particles (both x,y coordinate and angular psi)
+  # generate an initial configuration of the particles (both x,y coordinate and angular psi)
 
   newkey, split = random.split(key)
   pos = random.uniform(newkey, (N, dim), maxval = box_size, dtype=jnp.float64)
   pos = pos.at[0].set(jnp.array([0.5*box_size, 0.5*box_size + center_particle_rad], dtype=jnp.float64))
   pos = pos.at[1].set(jnp.array([0.5*box_size, 0.5*box_size - center_particle_rad], dtype=jnp.float64))
-  # pos = pos.at[2].set(jnp.array([0.5*box_size + 0.2* center_particle_rad, 0.5*box_size + center_particle_rad], dtype=jnp.float64))
-  # pos = pos.at[3].set(jnp.array([0.5*box_size + 3* center_particle_rad, 0.6*box_size + center_particle_rad], dtype=jnp.float64))
-
-  # ort = random.uniform(split, (N, ), minval = 0, maxval = 2*jnp.pi, dtype=jnp.float64)
+  
   ort = random.uniform(split, (N, ), minval = -jnp.pi, maxval = jnp.pi, dtype=jnp.float64)
   ort = ort.at[0].set(-0.5*jnp.pi)
   ort = ort.at[1].set(0.5*jnp.pi)
-  # ort = ort.at[2].set(-0.5*jnp.pi)
-  # ort = ort.at[3].set(-0.5*jnp.pi)
 
   body = rigid_body.RigidBody(pos, ort)
   return body
@@ -69,7 +64,7 @@ thetas = jnp.array([-jnp.pi*0.5, 0.5*jnp.pi, 0], dtype=jnp.float64)
 
 shape = rigid_body.concatenate_shapes(thetas_to_shape(thetas, center_particle_rad, 100000.0, label = 1), thetas_to_shape(thetas, center_particle_rad), thetas_to_shape(thetas, center_particle_rad, label = 1))
 
-# alpha_morse = 9.0
+# alpha_morse = am_list[int(sys.argv[1])]
 alpha_soft = 2.0
 r_cutoff = 1.0
 threshold = 0.202
@@ -78,20 +73,17 @@ weak_e = 4.0
 strong_e = 20.0
 max_energy_center = 10000.0
 
-energy_patch0 = jnp.array([0.0, weak_e, 0.0, 0.0, 0.0, weak_e])
-energy_patch1 = jnp.array([0.0, strong_e, 0.0, 0.0, 0.0, strong_e])
-
 get_box_size = lambda phi, N, rad: jnp.sqrt( N * jnp.pi * rad**2 / phi)
 box_size = get_box_size(num_density, N, center_particle_rad)
 
 dt = 1e-3
 kT = 1.0
 
-Bbatch = False
-batch_size = 10
+# Bbatch = True
+batch_size = 50
 n_steps = 40000
 
-OPT_DIR_NAME = '../Simulation_Results/' + f'state_change_N{N}_kT{kT}_nsteps{n_steps}_batchsize_{batch_size}'
+OPT_DIR_NAME = '../Simulation_Results/' + f'state_change_N{N}_kT{kT}_nsteps{n_steps}_batchsize_{batch_size}_sweepAM'
 p = Path(OPT_DIR_NAME)
 if not p.exists():
   os.mkdir(OPT_DIR_NAME)
@@ -232,13 +224,11 @@ def avg_loss(R_batched, O_batched):
   return jnp.mean(losses)
 
 
-
-def run_simulation(key, num_steps, init_pos, init_species, energy_patch0, energy_patch1, threshold = 0.202, kT = 1.0, alpha_morse = 9.0, alpha_soft = 2.0, r_cutoff = 1.0):
+def run_simulation(key, num_steps, init_pos, init_species, threshold = 0.202, strong_e = 20.0, weak_e = 4.0, kT = 1.0, alpha_morse = 9.0, alpha_soft = 2.0, r_cutoff = 1.0):
   displacement_fn, shift_fn = space.periodic(box_size)
 
-  # patches interact via morse potential
-  assert len(energy_patch0) == int((1+num_patch)*num_patch/2), "length of the interaction matrix 0 does not match the number of patches!"
-  assert len(energy_patch1) == int((1+num_patch)*num_patch/2), "length of the interaction matrix 1 does not match the number of patches!"
+  energy_patch0 = jnp.array([0.0, weak_e, 0.0, 0.0, 0.0, weak_e])
+  energy_patch1 = jnp.array([0.0, strong_e, 0.0, 0.0, 0.0, strong_e])
 
   @jit
   def gen_morse_eps(energy_patch):
@@ -298,31 +288,29 @@ def run_simulation(key, num_steps, init_pos, init_species, energy_patch0, energy
     state = state_zipped[0]
     pre_species = state_zipped[1]
     species = update_species2(state.position, pre_species)
-    return [apply_fn(state, body_type = species), species], [state.position, species, energy_fn(state.position, body_type = species)]
+    return [apply_fn(state, body_type = species), species], [state.position, species, energy_fn(state.position, body_type = species), sys_loss(state.position.center, state.position.orientation)]
     # return [apply_fn(state, body_type = species), species], energy_fn(state.position, body_type = species)
 
-  [state, species], [posss, speciesss, energiess] = lax.scan(do_step, [state, init_species], jnp.arange(num_steps))
-  return state, species, posss, speciesss, energiess
+  [state, species], [posss, speciesss, energiess, losses] = lax.scan(do_step, [state, init_species], jnp.arange(num_steps))
+  return state, species, posss, speciesss, energiess, losses
 run_simulation = jit(run_simulation, static_argnums = (1,))
-v_sim = jit(vmap(run_simulation, (0, None, 0, None, None, None, None, None, None, None, None)), static_argnums=(1,))
+v_sim = jit(vmap(run_simulation, (0, None, 0, 0, None, None, None, None, None, None, None)), static_argnums=(1,))
+sweep_am = jit(vmap(v_sim, (None, None, None, None, None, None, None, None, 0, None, None)), static_argnums=(1,))
 
-species0 = onp.where(onp.arange(N) < 2,0,1)
+init_sps = jnp.repeat(onp.where(onp.arange(N) < 2,0,1)[jnp.newaxis,...], batch_size, axis=0)
 
 key, split = random.split(key)
 init_poss = v_gen_init_pos(N, box_size, random.split(split, batch_size))
 key, split = random.split(key)
 start = time.time()
-if Bbatch:
-  sts, sps, possss, spssss, energiess = v_sim(random.split(split, batch_size), n_steps, init_poss, species0, energy_patch0, energy_patch1, threshold, kT, alpha_morse, alpha_soft, r_cutoff)
-  print(f"Simulation steps {n_steps}, with batch size = {batch_size}, for {N} particles, takes {duration} seconds in total")
-else:
-  sts, sps, possss, spssss, energiess = run_simulation(split, n_steps, init_pos, species0, energy_patch0, energy_patch1, threshold, kT, alpha_morse, alpha_soft, r_cutoff)
-  print(f"Simulation steps {n_steps} for {N} particles, takes {duration} seconds in total")
+sts, sps, possss, spssss, energiess, losses = sweep_am(random.split(split, batch_size), n_steps, init_poss, init_sps, threshold, strong_e, weak_e, kT, am_list, alpha_soft, r_cutoff)
 end = time.time()
 duration = end - start
+print(f"Simulation steps {n_steps}, with batch size = {batch_size}, for {N} particles, takes {duration} seconds in total")
 
 pickle.dump(sts, open(OPT_DIR_NAME+'/final_state', 'wb'))
 pickle.dump(sps, open(OPT_DIR_NAME+'/final_species', 'wb'))
 pickle.dump(possss, open(OPT_DIR_NAME+'/state_traj', 'wb'))
 pickle.dump(spssss, open(OPT_DIR_NAME+'/species_traj', 'wb'))
 pickle.dump(energiess, open(OPT_DIR_NAME+'/energy_traj', 'wb'))
+pickle.dump(losses, open(OPT_DIR_NAME+'/loss_traj', 'wb'))
