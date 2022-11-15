@@ -3,7 +3,7 @@
 #SBATCH -t 1440               # Runtime in minutes
 #SBATCH --mem=8000          # Memory per node in MB
 #SBATCH -p seas_dgx1,seas_gpu,gpu,gpu_mig           # Partition to submit to                                            
-#SBATCH --job-name=state_change_N20 # Note that %A and %a are the place holders for job id and array id  
+#SBATCH --job-name=state_change # Note that %A and %a are the place holders for job id and array id  
 #SBATCH --output=../Simulation_Results/out/state_change_N20.out                                                           
 #SBATCH --error=../Simulation_Results/err/state_change_N20.err                                                            
                                                                         
