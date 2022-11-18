@@ -250,7 +250,7 @@ def run_simulation(key, num_steps, init_pos, init_species, threshold = 0.202, st
     species = (shape.point_species)[ind]
     return pair_energy_fn(R, species=species, **kwargs)
 
-  species0 = onp.where(onp.arange(N) < 2,0,1)
+  species0 = onp.where(onp.arange(N) < 1,0,1)
   energy_fn = point_energy(E, shape, shape_species = species0)
 
   @jit
@@ -279,7 +279,7 @@ def run_simulation(key, num_steps, init_pos, init_species, threshold = 0.202, st
 
   init_fn, apply_fn = simulate.nvt_nose_hoover(energy_fn, shift_fn, dt, kT)
   key, split = random.split(key)
-  state = init_fn(split, init_pos, mass=shape.mass(jnp.where(jnp.arange(N) < 2, 0, 1)), body_type = init_species)
+  state = init_fn(split, init_pos, mass=shape.mass(jnp.where(jnp.arange(N) < 1, 0, 1)), body_type = init_species)
   apply_fn = jit(apply_fn)
 
   @jit
@@ -297,12 +297,10 @@ v_sim = jit(vmap(run_simulation, (0, None, 0, 0, None, None, None, None, None, N
 
 key, split = random.split(key)
 init_poss = init_positions = v_gen_init_pos(N, box_size, random.split(split, ensemble_size))
-init_sps = jnp.repeat(onp.where(onp.arange(N) < 2,0,1)[jnp.newaxis,...], ensemble_size, axis=0)
+init_sps = jnp.repeat(onp.where(onp.arange(N) < 1,0,1)[jnp.newaxis,...], ensemble_size, axis=0)
 key, split = random.split(key)
 key, split = random.split(key)
-key, split = random.split(key)
-key, split = random.split(key)
-state, species, posss, speciesss, energiess = v_sim(random.split(split, ensemble_size), n_steps, init_poss, init_sps, threshold = threshold, strong_e = strong_e, weak_e = weak_e, kT = kT, alpha_morse = alpha_morse, alpha_soft = alpha_soft, r_cutoff = r_cutoff)
+state, species, posss, speciesss, energiess = v_sim(random.split(split, ensemble_size), n_steps, init_poss, init_sps, threshold, strong_e, weak_e, kT, alpha_morse, alpha_soft, r_cutoff)
 
 pickle.dump(state, open(SIM_DIR+'/final_state', 'wb'))
 pickle.dump(species, open(SIM_DIR+'/final_species', 'wb'))

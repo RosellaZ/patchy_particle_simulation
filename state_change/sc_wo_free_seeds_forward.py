@@ -18,37 +18,12 @@ import sys
 from os.path import exists
 from pathlib import Path
 
-"""Utilities for computing gradients."""
- 
-from typing import Callable
- 
-def _first_arg_partial(f, *args, **kwargs):
-  def f_(x):
-    return f(x, *args, **kwargs)
-  return f_
- 
-def _split_and_pack_like(j, x):
-  leaves, structure = jax.tree_flatten(x)
-  sizes = [leaf.size for leaf in leaves]
-  split = jnp.split(j, onp.cumsum(sizes), axis=-1)
-  reshaped = [s.reshape(s.shape[:-1] + y.shape) for s, y in zip(split, leaves)]
-  return jax.tree_unflatten(structure, reshaped)
- 
-def _tangents_like(x):
-  eye = onp.eye(sum([leaf.size for leaf in jax.tree_leaves(x)]))
-  return _split_and_pack_like(eye, x)
- 
-def value_and_jacfwd(f: Callable) -> Callable:
-  """Returns a function that computes the Jacobian for the first argument, along with the value of the function."""
-  def val_and_jac(*args, **kwargs):
-    partial_f = _first_arg_partial(f, *args[1:], **kwargs)
-    tangents = _tangents_like(args[0])
-    jvp = functools.partial(jax.jvp, partial_f, (args[0],))
-    y, jac = jax.vmap(jvp, out_axes=-1)((tangents,))
-    y = jax.tree_map(lambda x: x[..., 0], y)
-    jac = jax.tree_map(lambda j: _split_and_pack_like(j, args[0]), jac)
-    return y, jac
-  return val_and_jac
+N = 20
+num_density = 0.3
+dim = 2
+num_patch = 3
+center_particle_rad = 1.0 # radius of the central particle
+
 
 def thetas_to_shape(thetas, radius = 1.0, center_mass = 1.0, label = 0):
       # map array of thetas to a RigidPointUnion object
@@ -68,9 +43,6 @@ def thetas_to_shape(thetas, radius = 1.0, center_mass = 1.0, label = 0):
   shape = rigid_body.point_union_shape(positions, mass).set(point_species = species)
   return shape
 
-dim = 2
-center_particle_rad = 1.0
-
 def gen_init_pos(N, box_size, key):
       # generate an initial configuration of the particles (both x,y coordinate and angular psi)
 
@@ -78,30 +50,36 @@ def gen_init_pos(N, box_size, key):
   pos = random.uniform(newkey, (N, dim), maxval = box_size, dtype=jnp.float64)
   pos = pos.at[0].set(jnp.array([0.5*box_size, 0.5*box_size + center_particle_rad], dtype=jnp.float64))
   pos = pos.at[1].set(jnp.array([0.5*box_size, 0.5*box_size - center_particle_rad], dtype=jnp.float64))
+  # pos = pos.at[2].set(jnp.array([0.5*box_size + 0.2* center_particle_rad, 0.5*box_size + center_particle_rad], dtype=jnp.float64))
+  # pos = pos.at[3].set(jnp.array([0.5*box_size + 3* center_particle_rad, 0.6*box_size + center_particle_rad], dtype=jnp.float64))
 
+  # ort = random.uniform(split, (N, ), minval = 0, maxval = 2*jnp.pi, dtype=jnp.float64)
   ort = random.uniform(split, (N, ), minval = -jnp.pi, maxval = jnp.pi, dtype=jnp.float64)
   ort = ort.at[0].set(-0.5*jnp.pi)
   ort = ort.at[1].set(0.5*jnp.pi)
+  # ort = ort.at[2].set(-0.5*jnp.pi)
+  # ort = ort.at[3].set(-0.5*jnp.pi)
 
   body = rigid_body.RigidBody(pos, ort)
   return body
 v_gen_init_pos = jit(vmap(gen_init_pos, (None, None, 0)), static_argnums = 0)
 
 # parameters
-N = 20
-num_density = 0.3
-num_patch = 3
 thetas = jnp.array([-jnp.pi*0.5, 0.5*jnp.pi, 0], dtype=jnp.float64)
 
 shape = rigid_body.concatenate_shapes(thetas_to_shape(thetas, center_particle_rad, 100000.0, label = 1), thetas_to_shape(thetas, center_particle_rad), thetas_to_shape(thetas, center_particle_rad, label = 1))
 
-alpha_morse = 9.0
+paramss = jnp.array([[100000, 7.0, 40.0, 0.202], [40000, 7.0, 40.0, 0.302], [40000, 6.0, 40.0, 0.202], [40000, 4.0, 50.0, 0.202], [40000, 4.0, 50.0, 0.101]])
+n_steps, alpha_morse, strong_e, threshold = paramss[int(sys.argv[1])]
+n_steps = int(n_steps)
+
+# alpha_morse = 7.0
 alpha_soft = 2.0
 r_cutoff = 1.0
-threshold = 0.202
+# threshold = 0.202
 
 weak_e = 4.0
-strong_e = 20.0
+# strong_e = 40.0
 max_energy_center = 10000.0
 
 get_box_size = lambda phi, N, rad: jnp.sqrt( N * jnp.pi * rad**2 / phi)
@@ -110,15 +88,10 @@ box_size = get_box_size(num_density, N, center_particle_rad)
 dt = 1e-3
 kT = 1.0
 
-ensemble_size = 50
-loop_batch = 4
+ensemble_size = 10
 
-n_steps = 40000 #40000
-n_steps_opt = 1000 #1000
-opt_steps = 100
-
-lr_list = jnp.array([0.5, 0.1, 0.05, 0.01, 0.005])
-ind = int(sys.argv[1])
+##### simulation #####
+key = random.PRNGKey(2230)
 
 from typing import Tuple, Optional, Callable
 
@@ -221,41 +194,20 @@ def point_energy(energy_fn: Callable[..., Array],
     # print(f"body_id = {body_id}\n")
     return energy_fn(pos, shape = shape, species=point_species, body_id=body_id, **kwargs)
   return wrapped_energy_fn
- 
-@jit
-def sys_loss(center, orient, clip_val = 1):
-  def sigmoid(x, gamma = 30, al = 20, ct = 0.5):
-    return al/(1 + jnp.exp(-gamma*(x-ct)))
 
-  displacement, shift = space.periodic(box_size)
 
-  # first component: map distance
-  vdisp = space.map_product(displacement)
-  ds = space.distance(vdisp(center, center))
+############################
+ROOT_DIR = '../Simulation_Results/'
+SIM_DIR = ROOT_DIR + f'compare_N{N}_nsteps{n_steps}_kT{kT}_am{alpha_morse}_stronge{strong_e}_ts{threshold}_bs{ensemble_size}/'
+p = Path(SIM_DIR)
+if not p.exists():
+  os.mkdir(SIM_DIR)
 
-  # second component: map the difference between orientation
-  diff_vec = lambda vec_1, vec_2 : vec_1 - vec_2
-  vdis_vec = space.map_product(diff_vec)
-  dtheta = vdis_vec(orient, orient)
-  dsin = sigmoid(abs(jnp.sin(dtheta)))
+def run_simulation(key, num_steps, init_pos, init_species, threshold = 0.202, strong_e = 20.0, weak_e = 4.0, kT = 1.0, alpha_morse = 9.0, alpha_soft = 2.0, r_cutoff = 1.0):
+  displacement_fn, shift_fn = space.periodic(box_size)
 
-  loss_list = (ds - 2)**2 + dsin
-  loss_list = loss_list[~onp.eye(loss_list.shape[0],dtype=bool)].reshape(loss_list.shape[0],-1)
-  loss = jnp.sum(jnp.sort(jnp.clip(loss_list + sigmoid(abs(jnp.cos(orient)), gamma = 15, al = 10, ct = 0.5)[:,None], None, clip_val))[:,:2])
-  ####### not sure whether should be 2 or 3
-
-  return loss
-
-def avg_loss(R_batched, O_batched):
-  losses = vmap(sys_loss, (0,0))(R_batched, O_batched)
-  return jnp.mean(losses)
-
-def run_simulation(key, num_steps, init_pos, init_species, params, threshold = 0.202, weak_e = 4.0, kT = 1.0, alpha_soft = 2.0, r_cutoff = 1.0):
-  alpha_morse, strong_e = params
   energy_patch0 = jnp.array([0.0, weak_e, 0.0, 0.0, 0.0, weak_e])
   energy_patch1 = jnp.array([0.0, strong_e, 0.0, 0.0, 0.0, strong_e])
-
-  displacement_fn, shift_fn = space.periodic(box_size)
 
   @jit
   def gen_morse_eps(energy_patch):
@@ -287,8 +239,6 @@ def run_simulation(key, num_steps, init_pos, init_species, params, threshold = 0
 
   @jit
   def update_species2(body, pre_species):
-    R = body.center
-    A = body.orientation
     vdisp = space.map_product(displacement_fn)
 
     all_pos = vmap(transform, (0, None))(body, thetas_to_shape(thetas, center_particle_rad))
@@ -315,124 +265,29 @@ def run_simulation(key, num_steps, init_pos, init_species, params, threshold = 0
     state = state_zipped[0]
     pre_species = state_zipped[1]
     species = update_species2(state.position, pre_species)
-    # return [apply_fn(state, body_type = species), species], [state.position, species]
-    return [apply_fn(state, body_type = species), species], t
+    return [apply_fn(state, body_type = species), species], [state.position, species, energy_fn(state.position, body_type = species)]
     # return [apply_fn(state, body_type = species), species], energy_fn(state.position, body_type = species)
 
-  [state, species], _ = lax.scan(do_step, [state, init_species], jnp.arange(num_steps))
-  return state, species
-
+  [state, species], [posss, speciesss, energiess] = lax.scan(do_step, [state, init_species], jnp.arange(num_steps))
+  return state, species, posss, speciesss, energiess
 run_simulation = jit(run_simulation, static_argnums = (1,))
-v_sim = jit(vmap(run_simulation, (0, None, 0, 0, None, None, None, None, None, None)), static_argnums=(1,))
+v_sim = jit(vmap(run_simulation, (0, None, 0, 0, None, None, None, None, None, None, None)), static_argnums=(1,))
 
-def get_mean_loss(params, sim_keys, num_steps_opt, init_poss, init_speciess):
-  states, _ = v_sim(sim_keys, num_steps_opt, init_poss, init_speciess, params, threshold, weak_e, kT, alpha_soft, r_cutoff)
-  mean_loss = avg_loss(states.position.center, states.position.orientation)
-  return mean_loss
+species0 = onp.where(onp.arange(N) < 2,0,1)
 
-get_mean_loss = jit(value_and_jacfwd(jit(get_mean_loss, static_argnums=2)), static_argnums=2)
-
-OPT_DIR_NAME = '../Simulation_Results/' + 'kT{}_N{}_nsteps{}_noptsteps{}_nopt{}_batchsize{}_lr{}'.format(kT, N, n_steps, n_steps_opt, opt_steps, ensemble_size * loop_batch, lr_list[ind])
-p = Path(OPT_DIR_NAME)
-if not p.exists():
-  os.mkdir(OPT_DIR_NAME)
-
-def optimization(input_params, opt_steps, key, learning_rate = 0.1, resume = False):
-      # define learning rate function
-  ind = int(opt_steps/3)
-  learning_rate_schedule = jnp.ones(opt_steps) * learning_rate
-  learning_rate_schedule = learning_rate_schedule.at[ind:2*ind].set(learning_rate * 0.5)
-  learning_rate_schedule = learning_rate_schedule.at[2*ind:].set(learning_rate * 0.1)
-  learning_rate_fn = lambda i: learning_rate_schedule[i]
-  opt_init, opt_update, get_params = optimizers.adam(step_size = learning_rate_fn)
-
-  loss_file = OPT_DIR_NAME + '/loss' + str(learning_rate) + '.txt'
-  grad_file = OPT_DIR_NAME + '/grad' + str(learning_rate) + '.txt'
-  param_file = OPT_DIR_NAME + '/params' + str(learning_rate) + '.txt'
-  
-  def clip_gradient(g, clip=10000.0):
-    return jnp.array(jnp.where(jnp.abs(g) > clip, jnp.sign(g)*clip, g)) 
-  
-  # Check if these files exist, if yes delete them
-  def clear_files(filenames):
-    for fn in filenames:
-      if exists(fn):
-        os.remove(fn)
-  if not resume:
-    clear_files([loss_file, grad_file, param_file])
-
-  opt_state = opt_init(input_params)
-  init_sps = jnp.repeat(onp.where(onp.arange(N) < 2,0,1)[jnp.newaxis,...], ensemble_size, axis=0)
-
-  def step(i, opt_state, key):
-    params = get_params(opt_state)
-    loss = 0
-    grad = []
-    # grad = 0
-    for j in range(loop_batch):
-      key, pos_key, split = random.split(key, 3)
-      key_batches = random.split(split, ensemble_size)
-      init_positions = v_gen_init_pos(N, box_size, random.split(pos_key, ensemble_size))
-      state_after, species_after = v_sim(key_batches, n_steps, init_positions, init_sps, params, threshold, weak_e, kT, alpha_soft, r_cutoff)
-      final_positions = state_after.position
-      key, split = random.split(key)
-      l, g = get_mean_loss(params, random.split(split, ensemble_size), n_steps_opt, final_positions, species_after)
-      loss += l
-      # grad += clip_gradient(g)
-      grad += [clip_gradient(g)]
-    grad = jnp.mean(jnp.array(grad), axis = 0)
-    loss = loss/loop_batch
-    # grad = grad/loop_batch
-    opt_state = opt_update(i, grad, opt_state)
-
-    with open(loss_file, 'a') as out1:
-      out1.write("{}".format(loss)+'\n')
-    
-    with open(grad_file, 'a') as out2:
-      temp_grad = onp.array(grad).tolist()
-      separator = ', '
-      out2.write(separator.join(['{}'.format(temp) for temp in temp_grad]) + '\n')
-      # out2.write("{}".format(grad)+'\n')
-    
-    with open(param_file, 'a') as out3:
-      temp_param = onp.array(params).tolist()
-      separator = ', '
-      # out3.write("{}".format(params)+'\n')
-      out3.write(separator.join(['{}'.format(temp) for temp in temp_param]) + '\n')
-
-    return opt_state, [loss, grad]
-  
-  min_loss_params = input_params
-  min_loss = 1e6
-
-  print(f"I'll start optimization iteration now! The learning rate is {learning_rate}.")
-
-  loss_array = jnp.ones(opt_steps)
-
-  for i in range(opt_steps):
-    key, split = random.split(key)
-    start = time.time()
-    new_opt_state, [loss, grad] = step(i, opt_state, split)
-    end = time.time()
-    loss_array = loss_array.at[i].set(loss)
-    print(f"@Opt step {i}")
-    if loss < min_loss:
-      min_loss = loss
-      min_loss_params = get_params(opt_state)
-      print("YEAH!! The loss is decreasing!")
-    print(f"This step takes {end - start} seconds") 
-    print(f"the loss is {loss}, the gradients are {grad}, and the params is {get_params(opt_state)}\n")
-    opt_state = new_opt_state
-  
-  return loss_array, min_loss_params
-
-key = random.PRNGKey(1021459)
 key, split = random.split(key)
-params = jnp.array([alpha_morse, strong_e])
-
+init_poss = init_positions = v_gen_init_pos(N, box_size, random.split(split, ensemble_size))
+init_sps = jnp.repeat(onp.where(onp.arange(N) < 1,0,1)[jnp.newaxis,...], ensemble_size, axis=0)
+key, split = random.split(key)
+key, split = random.split(key)
 start = time.time()
-key, split = random.split(key)
-loss_array, min_loss_params = optimization(params, opt_steps, split, learning_rate = lr_list[ind], resume = False)
+state, species, posss, speciesss, energiess = v_sim(random.split(split, ensemble_size), n_steps, init_poss, init_sps, threshold, strong_e, weak_e, kT, alpha_morse, alpha_soft, r_cutoff)
 end = time.time()
 duration = end - start
-print(f"Learning rate = lr_list[ind], Optimization {opt_steps} steps, simulation steps {n_steps}, sim_opt_steps {n_steps_opt}, with ensemble size = {ensemble_size}, takes {duration} seconds in total")
+print(f"Simulation steps {n_steps} for {N} particles, takes {duration} seconds in total")
+
+pickle.dump(state, open(SIM_DIR+'/final_state', 'wb'))
+pickle.dump(species, open(SIM_DIR+'/final_species', 'wb'))
+pickle.dump(posss, open(SIM_DIR+'/state_traj', 'wb'))
+pickle.dump(speciesss, open(SIM_DIR+'/species_traj', 'wb'))
+pickle.dump(energiess, open(SIM_DIR+'/energy_traj', 'wb'))
